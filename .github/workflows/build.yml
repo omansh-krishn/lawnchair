@@ -1,0 +1,69 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - '*-dev'
+    paths-ignore:
+      - '.idea/**'
+      - '.gitattributes'
+      - '.github/**.json'
+      - '.gitignore'
+      - '.gitmodules'
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+  pull_request:
+    paths-ignore:
+      - '.idea/**'
+      - '.gitattributes'
+      - '.github/**.json'
+      - '.gitignore'
+      - '.gitmodules'
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build-apk:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v3
+        with:
+          cache-encryption-key: Da25KUVSE5jbGds2zXmfXw==
+          gradle-home-cache-cleanup: true
+      - name: Write sign info
+        run: |
+          echo storePassword='${{ secrets.KEYSTORE_PASSWORD }}' >> keystore.properties
+          echo keyAlias='${{ secrets.KEY_ALIAS }}' >> keystore.properties
+          echo keyPassword='${{ secrets.KEY_PASSWORD }}' >> keystore.properties
+          echo storeFile='${{ github.workspace }}/key.jks' >> keystore.properties
+          echo '${{ secrets.KEYSTORE }}' | base64 --decode > ${{ github.workspace }}/key.jks
+
+      - name: Build APK
+        run: ./gradlew assembleLawnWithQuickstepGithubRelease assembleLawnWithQuickstepMarketRelease
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Release APK
+          path: build/outputs/apk/**/*.apk
+
+      - name: Store Files name
+        run: echo "FILESNAME=$(find build/outputs/apk -type f -name "*.apk" | xargs)" >> $GITHUB_ENV
+
+      - name: Upload artifact to GH Releases
+        run: |
+          echo ${{ secrets.PAT }} | gh auth login --with-token
+          gh release create ${{ github.run_number }} ${{ env.FILESNAME }} --repo omansh-krishn/lawnchair --notes "${{ github.sha }}"
+          rm ${{ secrets.FILES }}
